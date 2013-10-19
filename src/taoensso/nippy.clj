@@ -115,18 +115,15 @@
   [type id & body]
   `(freezer ~type ~id
      (if (counted? ~'x)
-       (do
-         (.writeInt ~'s (count ~'x))
-         (doseq [i# ~'x] (freeze-to-stream ~'s i#)))
+       (do (.writeInt ~'s (count ~'x))
+           (doseq [i# ~'x] (freeze-to-stream ~'s i#)))
        (let [bas# (ByteArrayOutputStream.)
-             s# (DataOutputStream. bas#)
-             cnt# (reduce
-                    (fn [cnt# i#]
-                      (freeze-to-stream! s# i#)
-                      (unchecked-inc cnt#))
-                    0
-                    ~'x)
-             ba# (.toByteArray bas#)]
+             s#   (DataOutputStream. bas#)
+             cnt# (reduce (fn [cnt# i#]
+                            (freeze-to-stream! s# i#)
+                            (unchecked-inc cnt#))
+                          0 ~'x)
+             ba#  (.toByteArray bas#)]
          (.writeInt ~'s cnt#)
          (.write ~'s ba# 0 (alength ba#))))))
 

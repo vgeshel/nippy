@@ -22,9 +22,7 @@
   "Default org.iq80.snappy.Snappy compressor:
         Ratio: low.
   Write speed: very high.
-   Read speed: very high.
-
-  A good general-purpose compressor for Redis."
+   Read speed: very high."
   (->SnappyCompressor))
 
 (deftype LZMA2Compressor [compression-level]
@@ -58,5 +56,6 @@
   Write speed: _very_ slow (also currently single-threaded).
    Read speed: slow.
 
-  A specialized compressor for large, low-write data."
+  The underlying Java library has plans to add multithreading in future which
+  should also significantly improve de/compression performance."
   (->LZMA2Compressor 0))
