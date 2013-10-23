@@ -125,6 +125,14 @@
           (interleave pairs pairs))
        ~(when default default))))
 
+(comment
+  (time (dotimes [_ 10000] (class "Hello")))
+  (time (dotimes [_ 10000] (instance? String "Hello")))
+  (time (dotimes [_ 10000] (utils/case-eval (type "Hello")
+                                            String true
+                                            )))
+  )
+
 (defn ^:private freeze-to-stream [^DataOutputStream s x]
   (when-let [m (meta x)] (write-id s id-meta) (freeze-to-stream s m)) ; Metadata
   (condp-id x ; Standard, concrete types - sorted ~ by prevalence
@@ -176,6 +184,8 @@
        ;; Use Clojure's own reader as final fallbackx
        (do (write-id s id-reader)
            (write-bytes s (.getBytes (pr-str x) "UTF-8")))))))
+
+;; (= (thaw (freeze (dissoc stress-data :bytes))) (dissoc stress-data :bytes))
 
 (defn freeze-to-stream!
   "Low-level API. Serializes arg (any Clojure data type) to a DataOutputStream."
