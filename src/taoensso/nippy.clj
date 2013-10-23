@@ -133,9 +133,23 @@
                                             )))
   )
 
+(defmacro ^:private case-eval-id [expr & clauses]
+  (let [default (when (odd? (count clauses)) (last clauses))
+        clauses (if default (butlast clauses) clauses)
+        pairs   (partition 2 clauses)]
+    `(utils/case-eval (type ~expr)
+       ~@(map-indexed
+          (fn [i# form-pair#]
+            (let [[class# [id# & body#]] form-pair#]
+              (if (even? i#) class#
+                  `(let [~'x ~(with-meta 'x {:tag class#})]
+                     (write-id ~'s ~id#) ~@body#))))
+          (interleave pairs pairs))
+       ~(when default default))))
+
 (defn ^:private freeze-to-stream [^DataOutputStream s x]
   (when-let [m (meta x)] (write-id s id-meta) (freeze-to-stream s m)) ; Metadata
-  (condp-id x ; Standard, concrete types - sorted ~ by prevalence
+  (case-eval-id x ; Standard, concrete types - sorted ~ by prevalence
     Long    [id-long    (.writeLong s x)]
     String  [id-string  (write-utf8 s x)]
     Keyword [id-keyword (write-utf8 s (if-let [ns (namespace x)]
