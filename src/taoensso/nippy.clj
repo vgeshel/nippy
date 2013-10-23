@@ -11,9 +11,12 @@
              DataOutputStream]
             [java.lang.reflect Method]
             [java.util Date UUID]
-            [clojure.lang Keyword BigInt Ratio PersistentQueue PersistentTreeMap
-             PersistentTreeSet IPersistentList IPersistentVector IPersistentMap
-             APersistentMap IPersistentSet ISeq IRecord]))
+            [clojure.lang Keyword BigInt Ratio
+             APersistentMap APersistentVector APersistentSet
+             IPersistentMap IPersistentVector IPersistentSet IPersistentList
+             PersistentQueue PersistentTreeMap
+             PersistentTreeSet
+             IRecord ISeq]))
 
 ;;;; Nippy 2.x+ header spec (4 bytes)
 (def ^:private ^:const head-version 1)
@@ -76,7 +79,8 @@
 (def ^:const id-old-keyword (int 12)) ; as of 2.0.0-alpha5, for str consistecy
 
 ;;;; Freezing
-(defprotocol Freezable (freeze-to-stream* [this stream]))
+
+(declare ^:private freeze-to-stream)
 
 (defmacro           write-id    [s id] `(.writeByte ~s ~id))
 (defmacro ^:private write-bytes [s ba]
@@ -87,103 +91,96 @@
 
 (defmacro ^:private write-biginteger [s x] `(write-bytes ~s (.toByteArray ~x)))
 (defmacro ^:private write-utf8       [s x] `(write-bytes ~s (.getBytes ~x "UTF-8")))
-(defmacro ^:private freeze-to-stream
-  "Like `freeze-to-stream*` but with metadata support."
-  [s x]
-  `(let [x# ~x s# ~s]
-     (when-let [m# (meta x#)]
-       (write-id  s# ~id-meta)
-       (freeze-to-stream* m# s#))
-     (freeze-to-stream* x# s#)))
+(defmacro ^:private write-coll       [s x]
+  `(if (counted? ~'x)
+     (do (.writeInt ~'s (count ~'x))
+         (doseq [i# ~'x] (freeze-to-stream ~'s i#)))
+     (let [bas# (ByteArrayOutputStream.)
+           s#   (DataOutputStream. bas#)
+           cnt# (reduce (fn [cnt# i#]
+                          (freeze-to-stream s# i#)
+                          (unchecked-inc cnt#))
+                        0 ~'x)
+           ba#  (.toByteArray bas#)]
+       (.writeInt ~'s cnt#)
+       (.write ~'s ba# 0 (alength ba#)))))
+
+(defmacro ^:private write-kvs [s x]
+  `(do (.writeInt ~'s (* 2 (count ~'x)))
+       (doseq [kv# ~'x]
+         (freeze-to-stream ~'s (key kv#))
+         (freeze-to-stream ~'s (val kv#)))))
+
+(defmacro ^:private condp-id [expr & clauses]
+  (let [default (when (odd? (count clauses)) (last clauses))
+        clauses (if default (butlast clauses) clauses)
+        pairs   (partition 2 clauses)]
+    `(condp instance? ~expr
+       ~@(map-indexed
+          (fn [i# form-pair#]
+            (let [[class# [id# & body#]] form-pair#]
+              (if (even? i#) class#
+                  `(let [~'x ~(with-meta 'x {:tag class#})]
+                     (write-id ~'s ~id#) ~@body#))))
+          (interleave pairs pairs))
+       ~(when default default))))
+
+(defn ^:private freeze-to-stream [^DataOutputStream s x]
+  (when-let [m (meta x)] (write-id s id-meta) (freeze-to-stream s m)) ; Metadata
+  (condp-id x ; Standard, concrete types - sorted ~ by prevalence
+    Long    [id-long    (.writeLong s x)]
+    String  [id-string  (write-utf8 s x)]
+    Keyword [id-keyword (write-utf8 s (if-let [ns (namespace x)]
+                                        (str ns "/" (name x))
+                                        (name x)))]
+
+    APersistentMap    [id-map    (write-kvs  s x)]
+    APersistentVector [id-vector (write-coll s x)]
+    APersistentSet    [id-set    (write-coll s x)]
+
+    Double     [id-double  (.writeDouble  s x)]
+    Boolean    [id-boolean (.writeBoolean s x)]
+    BigInt     [id-bigint  (write-biginteger s (.toBigInteger x))]
+    BigInteger [id-bigint  (write-biginteger s x)]
+    BigDecimal [id-bigdec  (write-biginteger s (.unscaledValue x))
+                           (.writeInt s (.scale x))]
+    Character  [id-char    (.writeChar s (int x))]
+    Float      [id-float   (.writeFloat s x)]
+    Integer    [id-integer (.writeInt s x)]
+    Date       [id-date    (.writeLong s (.getTime x))]
+    UUID       [id-uuid    (.writeLong s (.getMostSignificantBits x))
+                           (.writeLong s (.getLeastSignificantBits x))]
+    Short      [id-short   (.writeShort s x)]
+    Byte       [id-byte    (.writeByte s x)]
+    Ratio      [id-ratio   (write-biginteger s (.numerator   x))
+                           (write-biginteger s (.denominator x))]
+
+    (Class/forName "[B") [id-bytes (write-bytes s ^bytes x)]
+    PersistentQueue   [id-queue      (write-coll s x)]
+    PersistentTreeSet [id-sorted-set (write-coll s x)]
+    PersistentTreeMap [id-sorted-map (write-kvs  s x)]
+
+    (cond
+     (nil? x) (write-id s id-nil)
+     ;; TODO Custom concrete types
+     :else
+     (condp-id x ; Now open up to interfaces
+       IRecord           [id-record (write-utf8 s (.getName (class x)))
+                                    (freeze-to-stream s (into {} x))]
+       IPersistentMap    [id-map    (write-kvs  s x)]
+       IPersistentVector [id-vector (write-coll s x)]
+       IPersistentSet    [id-set    (write-coll s x)]
+       IPersistentList   [id-list   (write-coll s x)]
+       ISeq              [id-seq    (write-coll s x)]
+
+       ;; Use Clojure's own reader as final fallbackx
+       (do (write-id s id-reader)
+           (write-bytes s (.getBytes (pr-str x) "UTF-8")))))))
 
 (defn freeze-to-stream!
   "Low-level API. Serializes arg (any Clojure data type) to a DataOutputStream."
   [^DataOutputStream data-output-stream x & _]
   (freeze-to-stream data-output-stream x))
-
-(defmacro ^:private freezer
-  "Helper to extend Freezable protocol."
-  [type id & body]
-  `(extend-type ~type
-     Freezable
-     (~'freeze-to-stream* [~'x ~(with-meta 's {:tag 'DataOutputStream})]
-       (write-id ~'s ~id)
-       ~@body)))
-
-(defmacro ^:private coll-freezer
-  "Extends Freezable to simple collection types."
-  [type id & body]
-  `(freezer ~type ~id
-     (if (counted? ~'x)
-       (do (.writeInt ~'s (count ~'x))
-           (doseq [i# ~'x] (freeze-to-stream ~'s i#)))
-       (let [bas# (ByteArrayOutputStream.)
-             s#   (DataOutputStream. bas#)
-             cnt# (reduce (fn [cnt# i#]
-                            (freeze-to-stream! s# i#)
-                            (unchecked-inc cnt#))
-                          0 ~'x)
-             ba#  (.toByteArray bas#)]
-         (.writeInt ~'s cnt#)
-         (.write ~'s ba# 0 (alength ba#))))))
-
-(defmacro ^:private kv-freezer
-  "Extends Freezable to key-value collection types."
-  [type id & body]
-  `(freezer ~type ~id
-    (.writeInt ~'s (* 2 (count ~'x)))
-    (doseq [kv# ~'x]
-      (freeze-to-stream ~'s (key kv#))
-      (freeze-to-stream ~'s (val kv#)))))
-
-(freezer (Class/forName "[B") id-bytes   (write-bytes s ^bytes x))
-(freezer nil                  id-nil)
-(freezer Boolean              id-boolean (.writeBoolean s x))
-
-(freezer Character id-char    (.writeChar s (int x)))
-(freezer String    id-string  (write-utf8 s x))
-(freezer Keyword   id-keyword (write-utf8 s (if-let [ns (namespace x)]
-                                              (str ns "/" (name x))
-                                              (name x))))
-
-(freezer IRecord id-record
-         (write-utf8 s (.getName (class x)))
-         (freeze-to-stream s (into {} x)))
-
-(coll-freezer PersistentQueue       id-queue)
-(coll-freezer PersistentTreeSet     id-sorted-set)
-(kv-freezer   PersistentTreeMap     id-sorted-map)
-
-(coll-freezer IPersistentList       id-list)
-(coll-freezer IPersistentVector     id-vector)
-(coll-freezer IPersistentSet        id-set)
-(kv-freezer   APersistentMap        id-map)
-(coll-freezer ISeq                  id-seq)
-
-(freezer Byte       id-byte    (.writeByte s x))
-(freezer Short      id-short   (.writeShort s x))
-(freezer Integer    id-integer (.writeInt s x))
-(freezer Long       id-long    (.writeLong s x))
-(freezer BigInt     id-bigint  (write-biginteger s (.toBigInteger x)))
-(freezer BigInteger id-bigint  (write-biginteger s x))
-
-(freezer Float      id-float   (.writeFloat s x))
-(freezer Double     id-double  (.writeDouble s x))
-(freezer BigDecimal id-bigdec
-         (write-biginteger s (.unscaledValue x))
-         (.writeInt s (.scale x)))
-
-(freezer Ratio id-ratio
-         (write-biginteger s (.numerator   x))
-         (write-biginteger s (.denominator x)))
-
-(freezer Date id-date (.writeLong s (.getTime x)))
-(freezer UUID id-uuid
-         (.writeLong s (.getMostSignificantBits x))
-         (.writeLong s (.getLeastSignificantBits x)))
-
-;; Use Clojure's own reader as final fallback
-(freezer Object id-reader (write-bytes s (.getBytes (pr-str x) "UTF-8")))
 
 (def ^:private head-meta-id (reduce-kv #(assoc %1 %3 %2) {} head-meta))
 
