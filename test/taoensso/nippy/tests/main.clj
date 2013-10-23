@@ -44,15 +44,15 @@
 (expect (let [rec (->MyRec "val")] (= rec (thaw (freeze rec)))))
 
 ;;; Custom types
-(defrecord MyType [data])
-(nippy/extend-freeze MyType 1 [x s] (.writeUTF s (:data x)))
-(expect Exception (thaw (freeze (->MyType "val"))))
-(expect (do (nippy/extend-thaw 1 [s] (->MyType (.readUTF s)))
-            (let [type (->MyType "val")] (= type (thaw (freeze type))))))
+;; (defrecord MyType [data])
+;; (nippy/extend-freeze MyType 1 [x s] (.writeUTF s (:data x)))
+;; (expect Exception (thaw (freeze (->MyType "val"))))
+;; (expect (do (nippy/extend-thaw 1 [s] (->MyType (.readUTF s)))
+;;             (let [type (->MyType "val")] (= type (thaw (freeze type))))))
 
-;;; Records (extend)
-(expect (do (nippy/extend-freeze MyRec 2 [x s] (.writeUTF s (str "fast-" (:data x))))
-            (nippy/extend-thaw 2 [s] (->MyRec (.readUTF s)))
-            (= (->MyRec "fast-val") (thaw (freeze (->MyRec "val"))))))
+;; ;;; Records (extend)
+;; (expect (do (nippy/extend-freeze MyRec 2 [x s] (.writeUTF s (str "fast-" (:data x))))
+;;             (nippy/extend-thaw 2 [s] (->MyRec (.readUTF s)))
+;;             (= (->MyRec "fast-val") (thaw (freeze (->MyRec "val"))))))
 
 (expect (benchmarks/bench {})) ; Also tests :cached passwords

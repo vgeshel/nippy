@@ -378,19 +378,20 @@
 
 ;;;; Custom types
 
-(defmacro extend-freeze
-  "Alpha - subject to change.
-  Extends Nippy to support freezing of a custom type with id ∈[1, 128]:
-  (defrecord MyType [data])
-  (extend-freeze MyType 1 [x data-output-stream]
-    (.writeUTF [data-output-stream] (:data x)))"
-  [type custom-type-id [x stream] & body]
-  (assert (and (>= custom-type-id 1) (<= custom-type-id 128)))
-  `(extend-type ~type
-     Freezable
-     (~'freeze-to-stream* [~x ~(with-meta stream {:tag 'java.io.DataOutputStream})]
-       (write-id ~stream ~(int (- custom-type-id)))
-       ~@body)))
+;;; TODO Update for new design
+;; (defmacro extend-freeze
+;;   "Alpha - subject to change.
+;;   Extends Nippy to support freezing of a custom type with id ∈[1, 128]:
+;;   (defrecord MyType [data])
+;;   (extend-freeze MyType 1 [x data-output-stream]
+;;     (.writeUTF [data-output-stream] (:data x)))"
+;;   [type custom-type-id [x stream] & body]
+;;   (assert (and (>= custom-type-id 1) (<= custom-type-id 128)))
+;;   `(extend-type ~type
+;;      Freezable
+;;      (~'freeze-to-stream* [~x ~(with-meta stream {:tag 'java.io.DataOutputStream})]
+;;        (write-id ~stream ~(int (- custom-type-id)))
+;;        ~@body)))
 
 (defonce custom-readers (atom {})) ; {<custom-type-id> (fn [data-input-stream]) ...}
 (defmacro extend-thaw
