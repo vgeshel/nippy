@@ -226,16 +226,12 @@
 (defmacro ^:private read-biginteger [s] `(BigInteger. (read-bytes ~s)))
 (defmacro ^:private read-utf8       [s] `(String. (read-bytes ~s) "UTF-8"))
 
-(defmacro ^:private coll-thaw "Thaws simple collection types."
-  [s coll]
-  `(let [s# ~s]
-     (utils/repeatedly-into ~coll (.readInt s#) (thaw-from-stream s#))))
+(defmacro ^:private read-coll [s coll]
+  `(let [s# ~s] (utils/repeatedly-into ~coll (.readInt s#) (thaw-from-stream s#))))
 
-(defmacro ^:private coll-thaw-kvs "Thaws key-value collection types."
-  [s coll]
-  `(let [s# ~s]
-     (utils/repeatedly-into ~coll (/ (.readInt s#) 2)
-                            [(thaw-from-stream s#) (thaw-from-stream s#)])))
+(defmacro ^:private read-kvs [s coll]
+  `(let [s# ~s] (utils/repeatedly-into ~coll (/ (.readInt s#) 2)
+                  [(thaw-from-stream s#) (thaw-from-stream s#)])))
 
 (declare ^:private custom-readers)
 
@@ -253,15 +249,15 @@
      id-string  (read-utf8 s)
      id-keyword (keyword (read-utf8 s))
 
-     id-queue      (coll-thaw s (PersistentQueue/EMPTY))
-     id-sorted-set (coll-thaw s     (sorted-set))
-     id-sorted-map (coll-thaw-kvs s (sorted-map))
+     id-queue      (read-coll s (PersistentQueue/EMPTY))
+     id-sorted-set (read-coll s (sorted-set))
+     id-sorted-map (read-kvs  s (sorted-map))
 
-     id-list    (into '() (rseq (coll-thaw s [])))
-     id-vector  (coll-thaw s  [])
-     id-set     (coll-thaw s #{})
-     id-map     (coll-thaw-kvs s  {})
-     id-seq     (coll-thaw s [])
+     id-list    (into '() (rseq (read-coll s [])))
+     id-vector  (read-coll s  [])
+     id-set     (read-coll s #{})
+     id-map     (read-kvs  s  {})
+     id-seq     (read-coll s  [])
 
      id-meta (let [m (thaw-from-stream s)] (with-meta (thaw-from-stream s) m))
 
